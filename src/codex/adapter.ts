@@ -51,6 +51,8 @@ export interface CodexConnectionOptions {
   streamIdleTimeoutMs: number
   /** Resolved provider-owned retry policy. */
   retryPolicy: ResolvedRetryPolicy
+  /** Strip redundant model-emitted `sandbox_permissions` from tool calls. */
+  sanitizeSandboxPermissions: boolean
 }
 
 /** Constructor options: the operation-local resolution hooks the plugin owns. */
@@ -108,6 +110,35 @@ function httpErrorCode(status: number, error?: WireError['error']): string {
   if (status === 400) return 'INVALID_REQUEST'
   if (status >= 500) return 'SERVER'
   return `HTTP_${status}`
+}
+
+/**
+ * Sandbox denials in tool results name the session's active mode, e.g.
+ * `not strictly wider than this call's current "workspace-write" mode`.
+ */
+const ACTIVE_MODE_PATTERN = /current "([a-z-]+)" mode|denied under ([a-z-]+) mode/gi
+
+/**
+ * Collect the active sandbox modes named by sandbox denials in the
+ * conversation. Restating an active mode is never a valid escalation, so any
+ * `sandbox_permissions` equal to one of these is stripped unconditionally;
+ * other values (genuine escalations) are always preserved.
+ */
+function conversationActiveSandboxModes(options: GenerateOptions): string[] {
+  const modes = new Set<string>()
+  for (const message of options.messages) {
+    for (const block of message.content) {
+      if (block.type !== 'tool-result') continue
+      for (const part of block.content) {
+        if (part.type !== 'text') continue
+        for (const match of part.text.matchAll(ACTIVE_MODE_PATTERN)) {
+          const mode = match[1] ?? match[2]
+          if (mode !== undefined) modes.add(mode.toLowerCase())
+        }
+      }
+    }
+  }
+  return [...modes]
 }
 
 /**
@@ -216,7 +247,13 @@ export class CodexAdapter extends LlmAdapter {
       throw new LlmError('OpenAI Codex returned no response body', 'EMPTY_RESPONSE')
     }
 
-    yield* translate(parseSse(response.body, () => { /* transport activity */ }))
+    yield* translate(
+      parseSse(response.body, () => { /* transport activity */ }),
+      {
+        sandboxPermissionsPolicy: connection.sanitizeSandboxPermissions ? 'strip-redundant' : 'preserve',
+        activeSandboxModes: conversationActiveSandboxModes(options),
+      },
+    )
   }
 
   /**

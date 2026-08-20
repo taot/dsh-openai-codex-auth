@@ -25,6 +25,48 @@ import { CallId, LlmError } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk, TokenUsage, ToolCallBlock } from '@deepseek-ai/dsh-llm'
 import type { WireStreamEvent, WireUsage } from './types.ts'
 
+/**
+ * Policy for model-emitted sandbox escalation arguments on tool calls.
+ *
+ * Some models attach a no-op `sandbox_permissions: "workspace-write"` even
+ * though the session is already workspace-write; the harness rejects that as
+ * an invalid escalation before the tool ever runs. `strip-redundant` removes
+ * the key (and its paired `justification`) whenever its value restates an
+ * active sandbox mode; any other value is a genuine escalation and is kept.
+ */
+export type SandboxPermissionsPolicy = 'preserve' | 'strip-redundant'
+
+/** Options for {@link translate}. */
+export interface TranslateOptions {
+  /** Sandbox argument policy; defaults to `preserve`. */
+  sandboxPermissionsPolicy?: SandboxPermissionsPolicy
+  /**
+   * Active sandbox modes named by denials in the conversation (e.g.
+   * `["workspace-write"]`). A `sandbox_permissions` equal to one of these is
+   * a redundant restatement — never a valid escalation — and is stripped.
+   */
+  activeSandboxModes?: readonly string[]
+}
+
+/** Rewrite tool-call arguments, dropping redundant sandbox escalation keys. */
+function sanitizeToolArguments(argumentsJson: string, policy: SandboxPermissionsPolicy, activeModes: readonly string[]): string {
+  if (policy !== 'strip-redundant' || activeModes.length === 0 || !argumentsJson.includes('sandbox_permissions')) return argumentsJson
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(argumentsJson)
+  } catch {
+    return argumentsJson
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return argumentsJson
+  const record = parsed as Record<string, unknown>
+  const value = record.sandbox_permissions
+  if (typeof value !== 'string' || !activeModes.includes(value.toLowerCase())) return argumentsJson
+  const next = { ...record }
+  delete next.sandbox_permissions
+  if (typeof next.justification === 'string') delete next.justification
+  return JSON.stringify(next)
+}
+
 /** Map codex usage to the disjoint harness accounting (codex may fold cache tokens). */
 function mapUsage(raw: WireUsage | undefined): TokenUsage | undefined {
   if (raw === undefined) return undefined
@@ -74,7 +116,9 @@ function parseEvent(data: string): WireStreamEvent | null {
  * @param datas - SSE data payloads (including a trailing `[DONE]`).
  * @returns the harness `StreamChunk` sequence for the response.
  */
-export async function* translate(datas: AsyncGenerator<string>): AsyncGenerator<StreamChunk> {
+export async function* translate(datas: AsyncGenerator<string>, options: TranslateOptions = {}): AsyncGenerator<StreamChunk> {
+  const sandboxPolicy = options.sandboxPermissionsPolicy ?? 'preserve'
+  const activeModes = options.activeSandboxModes ?? []
   const pending = new Map<number, PendingBlock>()
   let sawTerminal = false
   let terminalUsage: WireUsage | undefined
@@ -156,7 +200,7 @@ export async function* translate(datas: AsyncGenerator<string>): AsyncGenerator<
     if (type === 'response.function_call_arguments.done') {
       const index = numberIndex(event.output_index, nextIndex(pending))
       const block = pending.get(index)
-      if (block !== undefined) block.arguments = String(event.arguments ?? '')
+      if (block !== undefined) block.arguments = sanitizeToolArguments(String(event.arguments ?? ''), sandboxPolicy, activeModes)
       continue
     }
 
@@ -171,7 +215,7 @@ export async function* translate(datas: AsyncGenerator<string>): AsyncGenerator<
         yield { type: 'block-end', index, block: { type: 'text', text } }
       } else if (item?.type === 'function_call') {
         const name = block.name ?? item.name
-        const args = item.arguments ?? block.arguments ?? '{}'
+        const args = sanitizeToolArguments(item.arguments ?? block.arguments ?? '{}', sandboxPolicy, activeModes)
         const id = CallId(block.id ?? item.call_id ?? `call_${index}`)
         block.name = name
         block.arguments = args

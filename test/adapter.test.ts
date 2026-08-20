@@ -19,6 +19,7 @@ function connection(overrides: Partial<CodexConnectionOptions> = {}): CodexConne
     refreshBeforeMs: 300_000,
     streamIdleTimeoutMs: 30_000,
     retryPolicy: { mode: 'normal', maxRetries: 0, retryableCodes: [], backoff: { type: 'fixed', fixed: 1_000 } } as unknown as CodexConnectionOptions['retryPolicy'],
+    sanitizeSandboxPermissions: false,
     ...overrides,
   }
 }

@@ -78,6 +78,10 @@ openai-codex:
   refreshBeforeMs: 300000
   # Drop an in-flight request after this much provider idle time.
   streamIdleTimeoutMs: 30000
+  # Strip model-emitted redundant `sandbox_permissions: "workspace-write"` from
+  # tool calls before the harness sees them (kept when a sandbox denial in the
+  # conversation makes it a legitimate retry; genuine escalations preserved).
+  sanitizeSandboxPermissions: true
   # Override the codex Responses endpoint (advanced/debugging).
   baseURL: https://chatgpt.com/backend-api/codex/responses
 ```

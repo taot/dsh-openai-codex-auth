@@ -85,6 +85,8 @@ export interface Config {
   streamIdleTimeoutMs?: number
   /** Provider-owned retry policy. */
   retryPolicy?: RetryPolicyConfig
+  /** Strip redundant model-emitted `sandbox_permissions` from tool calls (default true). */
+  sanitizeSandboxPermissions?: boolean
 }
 
 const catalogModel: z<CodexCatalogModel> = z.object({
@@ -105,6 +107,7 @@ export const Config: z<Config> = z.object({
   refreshBeforeMs: z.number().step(1).min(0).default(DEFAULT_REFRESH_BEFORE_MS),
   streamIdleTimeoutMs: z.number().min(1).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
   retryPolicy: RetryPolicySchema,
+  sanitizeSandboxPermissions: z.boolean().default(true),
 })
 
 /** Validate, detach, and de-duplicate the model catalog. */
@@ -134,6 +137,7 @@ const connectionFromConfig = (config: Config): CodexConnectionOptions => ({
   refreshBeforeMs: config.refreshBeforeMs ?? DEFAULT_REFRESH_BEFORE_MS,
   streamIdleTimeoutMs: config.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   retryPolicy: resolveRetryPolicy(config.retryPolicy, 'openai-codex: retryPolicy'),
+  sanitizeSandboxPermissions: config.sanitizeSandboxPermissions ?? true,
 })
 
 /**

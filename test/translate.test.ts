@@ -108,3 +108,37 @@ describe('translate (codex Responses → StreamChunks)', () => {
     ])
   })
 })
+
+describe('translate sandbox_permissions sanitization', () => {
+  const toolCallEvents = (args: string) => [
+    JSON.stringify({ type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', call_id: 'call_1', name: 'bash' } }),
+    JSON.stringify({ type: 'response.function_call_arguments.delta', output_index: 0, delta: args }),
+    JSON.stringify({ type: 'response.function_call_arguments.done', output_index: 0, arguments: args }),
+    JSON.stringify({ type: 'response.output_item.done', output_index: 0, item: { type: 'function_call', call_id: 'call_1', name: 'bash', arguments: args } }),
+    JSON.stringify({ type: 'response.completed', response: { status: 'completed' } }),
+    '[DONE]',
+  ]
+  const escArgs = JSON.stringify({ command: 'ls', sandbox_permissions: 'workspace-write', justification: 'need access' })
+
+  it('strips a workspace-write restatement even when denial evidence exists', async () => {
+    const chunks: unknown[] = []
+    for await (const chunk of translate(stream(toolCallEvents(escArgs)), { sandboxPermissionsPolicy: 'strip-redundant', activeSandboxModes: ['workspace-write'] })) chunks.push(chunk)
+    const blockEnd = chunks.find(c => (c as { type?: string }).type === 'block-end') as { block: { arguments: string } }
+    expect(JSON.parse(blockEnd.block.arguments)).toEqual({ command: 'ls' })
+  })
+
+  it('preserves values that do not restate an active mode', async () => {
+    const args = JSON.stringify({ command: 'ls', sandbox_permissions: 'danger-full-access', justification: 'really need it' })
+    const chunks: unknown[] = []
+    for await (const chunk of translate(stream(toolCallEvents(args)), { sandboxPermissionsPolicy: 'strip-redundant', activeSandboxModes: ['workspace-write'] })) chunks.push(chunk)
+    const blockEnd = chunks.find(c => (c as { type?: string }).type === 'block-end') as { block: { arguments: string } }
+    expect(JSON.parse(blockEnd.block.arguments)).toEqual({ command: 'ls', sandbox_permissions: 'danger-full-access', justification: 'really need it' })
+  })
+
+
+  it('defaults to preserve', async () => {
+    const chunks = await collect(toolCallEvents(escArgs))
+    const blockEnd = chunks.find(c => (c as { type?: string }).type === 'block-end') as { block: { arguments: string } }
+    expect(JSON.parse(blockEnd.block.arguments)).toEqual({ command: 'ls', sandbox_permissions: 'workspace-write', justification: 'need access' })
+  })
+})
