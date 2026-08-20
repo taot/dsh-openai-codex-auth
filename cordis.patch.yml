@@ -1,0 +1,5 @@
+# dsh-openai-codex bundle patch: insert the OpenAI Codex provider + its
+# Settings card. Installed via: dsh plugin --profile <name> add ./dsh-openai-codex
+- insert:
+    - id: openai-codex
+      name: dsh-openai-codex
