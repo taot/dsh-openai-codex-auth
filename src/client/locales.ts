@@ -13,6 +13,8 @@ export const NS = 'settings.openaiCodex'
 export type CodexKey =
   | 'title'
   | 'description'
+  | 'expand'
+  | 'collapse'
   | 'signedIn'
   | 'signedOut'
   | 'authenticateBrowser'
@@ -30,6 +32,8 @@ export type CodexKey =
 export const en: Record<CodexKey, string> = {
   title: 'OpenAI Codex',
   description: 'Authenticate with your ChatGPT subscription to use OpenAI Codex models as an LLM provider.',
+  expand: 'Expand',
+  collapse: 'Collapse',
   signedIn: 'Signed in',
   signedOut: 'Not authenticated',
   authenticateBrowser: 'Authenticate (browser)',
@@ -48,6 +52,8 @@ export const en: Record<CodexKey, string> = {
 export const zh: Record<CodexKey, string> = {
   title: 'OpenAI Codex',
   description: '使用你的 ChatGPT 订阅进行身份验证，即可将 OpenAI Codex 模型作为 LLM 提供商。',
+  expand: '展开',
+  collapse: '收起',
   signedIn: '已登录',
   signedOut: '未认证',
   authenticateBrowser: '认证（浏览器）',
